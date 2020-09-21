@@ -288,17 +288,28 @@ def main():
     @bot.command(name='sprint', brief='Checks into the current Sprint',
                  help='Use this command to check into the currently running Sprint, given a word count, '
                       'or the keyword \'same\' to use your previously submitted word count.')
-    async def sprint(ctx, word_count: int):
+    async def sprint(ctx, word_count_str: str):
         global active_sprint
         user_id = ctx.message.author.id
         user_name = ctx.message.author.name
-        logger.info('Member %s is checking in with a word_count of %i.', user_name, word_count)
-        response = f'{user_name} checked in with {word_count} words!'
 
         member = Member(connection=connection).find_by_name(user_name)
         if not member:
             member = Member(connection=connection, name=user_name, discord_user_id=user_id)
             member.create()
+
+        if word_count_str.lower() != 'same':
+            word_count = int(word_count_str)
+        else:
+            member_last_submission = Submission.get_last_for_member(connection, member)
+            if member_last_submission is not None:
+                word_count = member_last_submission.word_count
+            else:
+                await ctx.send(f'<@{user_id}>, you can\'t use ```!sprint same``` without having a previous submission.')
+                return
+
+        logger.info('Member %s is checking in with a word_count of %i.', user_name, word_count)
+        response = f'{user_name} checked in with {word_count} words!'
 
         active_sprint.add_member(member)
 

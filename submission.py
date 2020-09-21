@@ -61,5 +61,17 @@ class Submission(Dbo):
             result = cursor.fetchall()
             return [Submission(connection, item[0], member, item[1], item[2]) for item in result]
 
+    @staticmethod
+    def get_last_for_member(connection, member):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT SUBMISSION.ID, SUBMISSION.WORD_COUNT, SUBMISSION.TYPE FROM SUBMISSION WHERE '
+                'SUBMISSION.MEMBER_ID=%s AND SUBMISSION.TYPE<>%s ORDER BY SUBMISSION.ID DESC LIMIT 1',
+                (member.id, 'DELTA'))
+            result = cursor.fetchone()
+            if result is None:
+                return None
+            return Submission(connection, result[0], member, result[1], result[2])
+
     def __repr__(self) -> str:
         return f'Submission{{id={self.id},member={repr(self.member)},word_count={self.word_count},type={self.type}}}'
