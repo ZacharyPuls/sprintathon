@@ -1,3 +1,5 @@
+import logging
+
 from dbo import Dbo
 from member import Member
 from submission import Submission
@@ -5,6 +7,7 @@ from submission import Submission
 
 class Sprint(Dbo):
     def __init__(self, connection, _id=None, start=None, duration=0) -> None:
+        self.logger = logging.getLogger('sprintathon.Sprint')
         super().__init__(connection)
         self.id = _id
         self.start = start
@@ -24,6 +27,7 @@ class Sprint(Dbo):
             if not self.start:
                 self.start = result[1]
             self.connection.commit()
+            self.logger.debug('Inserting %s into database.', self)
             return self.id
 
     def update(self) -> None:
@@ -38,11 +42,13 @@ class Sprint(Dbo):
             if not self.start:
                 self.start = result[0]
             self.connection.commit()
+            self.logger.debug('Updating %s in database.', self)
 
     def delete(self) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute('DELETE FROM SPRINT WHERE ID=%s', [self.id])
             self.connection.commit()
+            self.logger.debug('Deleting %s from database.', self)
 
     def find_by_id(self, _id):
         self.id = _id
@@ -87,6 +93,9 @@ class Sprint(Dbo):
             cursor.execute('INSERT INTO SPRINT_SUBMISSION(SPRINT_ID, SUBMISSION_ID) VALUES(%s, %s)',
                            (self.id, submission.id))
             self.connection.commit()
+
+    def __repr__(self) -> str:
+        return f'Sprint{{id={self.id},start={self.start},duration={self.duration}}}'
 
     # def get_word_count(self, member, count_type):
     #     with self.connection.cursor() as cursor:

@@ -1,9 +1,12 @@
+import logging
+
 from dbo import Dbo
 from member import Member
 
 
 class Submission(Dbo):
     def __init__(self, connection, _id=None, member=None, word_count=0, _type='') -> None:
+        self.logger = logging.getLogger('sprintathon.Submission')
         super().__init__(connection)
         self.id = _id
         self.member = member
@@ -16,6 +19,7 @@ class Submission(Dbo):
                            [self.member.id, self.word_count, self.type])
             self.id = cursor.fetchone()[0]
             self.connection.commit()
+            self.logger.debug('Inserting %s into database.', self)
             return self.id
 
     def update(self) -> None:
@@ -23,11 +27,13 @@ class Submission(Dbo):
             cursor.execute('UPDATE SUBMISSION SET MEMBER_ID=%s, WORD_COUNT=%s, TYPE=%s WHERE ID=%s',
                            (self.member.id, self.word_count, self.type, self.id))
             self.connection.commit()
+            self.logger.debug('Updating %s in database.', self)
 
     def delete(self) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute('DELETE FROM SUBMISSION WHERE ID=%s', [self.id])
             self.connection.commit()
+            self.logger.debug('Deleting %s from database.', self)
 
     def find_by_id(self, _id):
         self.id = _id
@@ -54,3 +60,6 @@ class Submission(Dbo):
                 (member.id, sprint.id))
             result = cursor.fetchall()
             return [Submission(connection, item[0], member, item[1], item[2]) for item in result]
+
+    def __repr__(self) -> str:
+        return f'Submission{{id={self.id},member={repr(self.member)},word_count={self.word_count},type={self.type}}}'

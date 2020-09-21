@@ -1,9 +1,12 @@
+import logging
+
 from dbo import Dbo
 from member import Member
 
 
 class Sprintathon(Dbo):
     def __init__(self, connection, _id=None, start=None, duration=0) -> None:
+        self.logger = logging.getLogger('sprintathon.Sprintathon')
         super().__init__(connection)
         self.connection = connection
         self.id = _id
@@ -24,6 +27,7 @@ class Sprintathon(Dbo):
             if not self.start:
                 self.start = result[1]
             self.connection.commit()
+            self.logger.debug('Inserting %s into database.', self)
             return self.id
 
     def update(self) -> None:
@@ -38,11 +42,13 @@ class Sprintathon(Dbo):
             if not self.start:
                 self.start = result[0]
             self.connection.commit()
+            self.logger.debug('Updating %s in database.', self)
 
     def delete(self) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute('DELETE FROM SPRINTATHON WHERE ID=%s', [self.id])
             self.connection.commit()
+            self.logger.debug('Deleting %s from database.', self)
 
     def find_by_id(self, _id):
         self.id = _id
@@ -76,3 +82,6 @@ class Sprintathon(Dbo):
                 'SUBMISSION.MEMBER_ID=%s AND SUBMISSION.TYPE=%s',
                 (self.id, member.id, 'DELTA'))
             return cursor.fetchone()[0]
+
+    def __repr__(self) -> str:
+        return f'Sprintathon{{id={self.id},start={self.start},duration={self.duration}}}'
