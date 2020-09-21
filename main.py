@@ -238,7 +238,7 @@ def main():
     global debug_mode_enabled
     debug_mode_enabled = os.environ.get('SPRINTATHON_DEBUG_MODE')
     enabled_or_disabled = 'disabled'
-    if debug_mode_enabled:
+    if debug_mode_enabled == 'True':
         enabled_or_disabled = 'enabled'
     logger.info('Debug mode is %s.', enabled_or_disabled)
 
