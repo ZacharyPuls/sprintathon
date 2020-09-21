@@ -246,44 +246,48 @@ def main():
     async def on_ready():
         logger.info('Sprintathon is started and ready to handle requests.')
 
-    @bot.command(name='sprintathon')
-    async def print_usage(ctx):
-        logger.info(f'User {ctx.message.author.name} requested help.')
-        await ctx.send(':robot: Hi! I\'m the Spr\\*ntathon bot! Beep boop :robot:\nHere\'s all the commands I know:\n '
-                       '   !start_sprintathon [duration]: Starts a new Spr\\*ntathon! Give me a duration in '
-                       'hours, or leave it blank to use the default of 24hrs.\n '
-                       '   !stop_sprintathon: Stops the active Spr\\*ntathon, if there is one active.\n '
-                       '   !start_sprint [duration]: Starts a new sprint. Give me a duration in minutes, '
-                       'or leave it blank to use the default of 15min.\n '
-                       '   !stop_sprint: Stops the active sprint, if there is one active\n '
-                       '   !sprint [word_count]: Checks you into the current sprint, given a word count. '
-                       'If there is an active Spr\\*ntathon, it will also add your word count to the running '
-                       'total for that Spr\\*ntathon!\n '
-                       '   !sprintathon: Prints this help message.\n '
-                       '*If you have any questions, feel free to drop my creator an email at zach@zachpuls.com, '
-                       'or check out my source code on https://github.com/ZacharyPuls/sprintathon!*')
+    @bot.command(name='about', brief='About Spr*ntathon',
+                 help='Use this command to get detailed information about the Spr*ntathon bot.')
+    async def print_about(ctx):
+        logger.info(f'User {ctx.message.author.name} requested about.')
+        await ctx.send(
+            ':robot: Hi! I\'m the Spr\\*ntathon bot! Beep boop :robot:\nIt\'s really nice to meet you!\n I\'m so '
+            'happy to help my fiancée track her Sprints! :heart:\n*If you have any questions, feel free to drop me an '
+            'email at zach@zachpuls.com, or check out my source code on https://github.com/ZacharyPuls/sprintathon! '
+            'If you find any issues, please do create an Issue (or even a PR) on GitHub, so I can get to fixing it! '
+            'Thanks again for using Spr\\*ntathon bot!*')
 
-    @bot.command(name='start_sprintathon')
+    @bot.command(name='start_sprintathon', brief='Starts a new Spr*ntathon',
+                 help='Use this command to create (and start) a new Spr*ntathon, given a duration in hours. Leave the '
+                      'duration blank for a 24hr Spr*ntathon.')
     async def start_sprintathon(ctx, sprintathon_time_in_hours: int = 24):
         logger.info('Starting sprintathon with duration of %i hours.', sprintathon_time_in_hours)
         await run_sprintathon(ctx, sprintathon_time_in_hours)
 
-    @bot.command(name='stop_sprintathon')
+    @bot.command(name='stop_sprintathon', brief='Stops the current Spr*ntathon',
+                 help='Use this command to stop the currently running Spr*ntathon, if one is running. If there is not '
+                      'a Spr*ntathon currently running, this command does nothing.')
     async def stop_sprintathon(ctx):
         logger.info('User {ctx.message.author.name} stopped sprintathon.')
         await kill_sprintathon(ctx)
 
-    @bot.command(name='start_sprint')
+    @bot.command(name='start_sprint', brief='Starts a new Sprint',
+                 help='Use this command to create (and start) a new Sprint, given a duration in minutes. Leave the '
+                      'duration blank for a 15min Sprint.')
     async def start_sprint(ctx, sprint_time_in_minutes: int = 15):
         logger.info('Starting spring with duration of %i minutes.', sprint_time_in_minutes)
         await run_sprint(ctx, sprint_time_in_minutes)
 
-    @bot.command(name='stop_sprint')
+    @bot.command(name='stop_sprint', brief='Stops the current Sprint',
+                 help='Use this command to stop the currently running Sprint, if one is running. If there is not a '
+                      'Sprint currently running, this command does nothing.')
     async def stop_sprint(ctx):
         logger.info('Stopping sprint.')
         await kill_sprint(ctx)
 
-    @bot.command(name='sprint')
+    @bot.command(name='sprint', brief='Checks into the current Sprint',
+                 help='Use this command to check into the currently running Sprint, given a word count, '
+                      'or the keyword \'same\' to use your previously submitted word count.')
     async def sprint(ctx, word_count: int):
         global active_sprint
         user_id = ctx.message.author.id
