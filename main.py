@@ -218,6 +218,18 @@ def format_leaderboard_string(leaderboard, _type, duration_in_minutes):
     return message
 
 
+def detect_debug_guild_conflict(current_guild, debug_guild, command_name, user_name, logger):
+    if debug_mode_enabled and current_guild != debug_guild:
+        logger.info(f'Ignoring {command_name} command from {user_name}, debug mode is active, and they attempted to '
+                    f'call from the {current_guild} guild.')
+        return True
+    elif not debug_mode_enabled and current_guild == debug_guild:
+        logger.info(f'Ignoring {command_name} command from {user_name}, debug mode is inactive, and they attempted '
+                    f'to call from the {current_guild} guild.')
+        return True
+    return False
+
+
 def main():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger('sprintathon')
@@ -246,6 +258,8 @@ def main():
         enabled_or_disabled = 'enabled'
     logger.info('Debug mode is %s.', enabled_or_disabled)
 
+    debug_guild = os.environ.get('SPRINTATHON_DEBUG_GUILD')
+
     @bot.event
     async def on_ready():
         logger.info('Sprintathon is started and ready to handle requests.')
@@ -253,6 +267,8 @@ def main():
     @bot.command(name='about', brief='About Spr*ntathon',
                  help='Use this command to get detailed information about the Spr*ntathon bot.')
     async def print_about(ctx):
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!about', ctx.message.author.name, logger):
+            return
         logger.info(f'User {ctx.message.author.name} requested about.')
         await ctx.send(
             ':robot: Hi! I\'m the Spr\\*ntathon bot! Beep boop :robot:\nIt\'s really nice to meet you!\n I\'m so '
@@ -265,6 +281,9 @@ def main():
                  help='Use this command to create (and start) a new Spr*ntathon, given a duration in hours. Leave the '
                       'duration blank for a 24hr Spr*ntathon.')
     async def start_sprintathon(ctx, sprintathon_time_in_hours: int = 24):
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!start_sprintathon',
+                                       ctx.message.author.name, logger):
+            return
         logger.info('Starting sprintathon with duration of %i hours.', sprintathon_time_in_hours)
         await run_sprintathon(ctx, sprintathon_time_in_hours)
 
@@ -272,20 +291,29 @@ def main():
                  help='Use this command to stop the currently running Spr*ntathon, if one is running. If there is not '
                       'a Spr*ntathon currently running, this command does nothing.')
     async def stop_sprintathon(ctx):
-        logger.info('User {ctx.message.author.name} stopped sprintathon.')
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!stop_sprintathon',
+                                       ctx.message.author.name, logger):
+            return
+        logger.info('User %s stopped sprintathon.', ctx.message.author.name)
         await kill_sprintathon(ctx)
 
     @bot.command(name='start_sprint', brief='Starts a new Sprint',
                  help='Use this command to create (and start) a new Sprint, given a duration in minutes. Leave the '
                       'duration blank for a 15min Sprint.')
     async def start_sprint(ctx, sprint_time_in_minutes: int = 15):
-        logger.info('Starting spring with duration of %i minutes.', sprint_time_in_minutes)
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!start_sprint', ctx.message.author.name,
+                                       logger):
+            return
+        logger.info('Starting sprint with duration of %i minutes.', sprint_time_in_minutes)
         await run_sprint(ctx, sprint_time_in_minutes)
 
     @bot.command(name='stop_sprint', brief='Stops the current Sprint',
                  help='Use this command to stop the currently running Sprint, if one is running. If there is not a '
                       'Sprint currently running, this command does nothing.')
     async def stop_sprint(ctx):
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!stop_sprint', ctx.message.author.name,
+                                       logger):
+            return
         logger.info('Stopping sprint.')
         await kill_sprint(ctx)
 
@@ -293,6 +321,8 @@ def main():
                  help='Use this command to check into the currently running Sprint, given a word count, '
                       'or the keyword \'same\' to use your previously submitted word count.')
     async def sprint(ctx, word_count_str: str):
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!sprint', ctx.message.author.name, logger):
+            return
         global active_sprint
         user_id = ctx.message.author.id
         user_name = ctx.message.author.name
@@ -334,6 +364,10 @@ def main():
     @bot.command(name='leaderboard', brief='Spr*ntathon Leaderboard',
                  help='Use this command to print out the current Spr*ntathon\'s leaderboard.')
     async def print_leaderboard(ctx):
+        if debug_mode_enabled and ctx.guild.name != debug_guild:
+            logger.info(f'Ignoring !leaderboard command from {ctx.message.author.name}, debug mode is active, and '
+                        f'they attempted to call from the {ctx.message.guild.name} guild.')
+            return
         await print_sprintathon_leaderboard(ctx)
 
     bot.run(discord_token)
