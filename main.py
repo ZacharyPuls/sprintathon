@@ -20,7 +20,7 @@ connection = None
 
 debug_mode_enabled: bool
 
-__version__ = [1, 0, 0]
+__version__ = [1, 0, 1]
 migrations_directory = 'db/migrations'
 
 
@@ -158,7 +158,7 @@ async def run_sprintathon(ctx, sprintathon_time_in_hours):
     if not sprintathon_is_active:
         return
 
-    await ctx.send('Sprintathon is up! Here are the results:')
+    await ctx.send('**Sprintathon is done! Here are the results:**')
 
     await print_sprintathon_leaderboard(ctx)
 
@@ -169,7 +169,7 @@ async def print_sprintathon_leaderboard(ctx):
         sprintathon_word_counts[sprintathon_member.discord_user_id] = active_sprintathon.get_word_count(
             sprintathon_member)
     sprintathon_leaderboard = sorted(sprintathon_word_counts.items(), key=lambda item: item[1], reverse=True)
-    await ctx.send(format_leaderboard_string(sprintathon_leaderboard, 'sprintathon', active_sprintathon.duration * 60))
+    await ctx.send(format_leaderboard_string(sprintathon_leaderboard, active_sprintathon.duration * 60))
 
 
 async def kill_sprintathon(ctx):
@@ -260,7 +260,9 @@ async def run_sprint(ctx, sprint_time_in_minutes):
 
     sprint_leaderboard = sorted(sprint_word_counts.items(), key=lambda item: item[1], reverse=True)
 
-    await ctx.send(format_leaderboard_string(sprint_leaderboard, 'sprint', active_sprint.duration))
+    message = '**Sprint is done! Here are the results:**\n'
+    message += format_leaderboard_string(sprint_leaderboard, active_sprint.duration)
+    await ctx.send(message)
 
     # If there is a sprintathon currently active, award the 1st place member double points.
     if sprintathon_is_active and len(sprint_leaderboard) > 0:
@@ -285,9 +287,8 @@ async def kill_sprint(ctx):
     await ctx.send(response)
 
 
-def format_leaderboard_string(leaderboard, _type, duration_in_minutes):
-    message = f'**Results for this {_type}:**\n'
-
+def format_leaderboard_string(leaderboard, duration_in_minutes):
+    message = ''
     for position, result in enumerate(leaderboard):
         st_nd_or_th = ''
         if position == 0:
