@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -19,6 +20,9 @@ connection = None
 
 debug_mode_enabled: bool
 
+__version__ = [1, 0, 0]
+migrations_directory = 'db/migrations'
+
 
 def add_sprintathon_submission(sprintathon_id, submission_id):
     with connection.cursor() as cursor:
@@ -27,16 +31,103 @@ def add_sprintathon_submission(sprintathon_id, submission_id):
         connection.commit()
 
 
+def is_version_string_greater(a, b):
+    a_version_numbers = list(map(int, a.split('.')))
+    b_version_numbers = list(map(int, b.split('.')))
+
+    if len(b_version_numbers) > len(a_version_numbers):
+        compare_from = b_version_numbers
+        compare_to = a_version_numbers
+        compare = lambda x, y: y > x
+    else:
+        compare_from = a_version_numbers
+        compare_to = b_version_numbers
+        compare = lambda x, y: x > y
+
+    for index, version_number in enumerate(compare_from):
+        if index < len(compare_to) and version_number != compare_to[index]:
+            return compare(version_number, compare_to[index])
+        elif index >= len(compare_to):
+            return version_number != 0
+
+    return False
+
+
 def initialize_database(connection_uri):
     global connection
     connection = psycopg2.connect(connection_uri)
 
-    with open('schema.sql') as schema_file:
+    with open('db/schema.sql') as schema_file:
         schema = schema_file.read()
 
     with connection.cursor() as cursor:
         cursor.execute(schema)
         connection.commit()
+        cursor.execute('SELECT * FROM VERSION')
+        schema_version_result = cursor.fetchone()
+        schema_version_major = schema_version_result[0]
+        schema_version_minor = schema_version_result[1]
+        schema_version_patch = schema_version_result[2]
+
+        logger = logging.getLogger('sprintathon.initialize_database')
+
+        target_version = f'{__version__[0]}.{__version__[1]}.{__version__[2]}'
+        target_version_dashed = target_version.replace('.', '-')
+
+        schema_version = f'{schema_version_major}.{schema_version_minor}.{schema_version_patch}'
+        schema_version_dashed = schema_version.replace('.', '-')
+
+        if is_version_string_greater(schema_version, target_version):
+            logger.warning(f'Attempting to run application v{target_version} on database schema v{schema_version}, '
+                           f'which is greater. Aborting migration.')
+            return False
+
+        logger.info(f'Migrating database schema from v{schema_version} to v{target_version}.')
+
+        migration_files = sorted(os.listdir(migrations_directory))
+        try:
+            migration_file_list_start = migration_files.index(f'patch_{schema_version_dashed}.sql') + 1
+            if migration_file_list_start >= len(migration_files):
+                logger.info(f'No migrations to apply.')
+                return True
+                # I'm not sure I really want to make a migration for each version released, even if it is just to
+                # update _VERSION logger.error(f'Migration of database schema with version {schema_version} to {
+                # target_version} failed. Application version {target_version} is greater than database schema
+                # version {schema_version}, but no migration files are present for any of the versions after {
+                # schema_version}.')
+            for migration_filename in migration_files[migration_file_list_start:]:
+                migration_filename_regex = re.search(r'patch_((\d+-){2}\d+)\.sql', migration_filename)
+                if not migration_filename_regex:
+                    logger.warning(f'Skipping invalid migration filename {migration_filename}.')
+                    continue
+                migration_version = migration_filename_regex.group(1).replace('-', '.')
+                if is_version_string_greater(migration_version, target_version):
+                    logger.info(f'Migration filename {migration_filename} (v{migration_version}) is greater than '
+                                f'target version {target_version}. Skipping migration file {migration_filename}.')
+                    continue
+                try:
+                    with open(f'{migrations_directory}/{migration_filename}') as migration_file:
+                        migration_file_sql = migration_file.read()
+                        if len(migration_file_sql) > 0:
+                            cursor.execute(migration_file_sql)
+                        else:
+                            logger.warning(f'Skipping empty migration file {migration_filename}.')
+                except (OSError, psycopg2.DataError) as e:
+                    logger.error(f'Failed to apply migration {migration_filename}, exception thrown was: {repr(e)}.')
+                    logger.info(f'Rolling back migrations, reverting back to v{schema_version}.')
+                    connection.rollback()
+                    return False
+        except ValueError:
+            logger.error(f'Migration of database schema with version '
+                         f'{schema_version} to {target_version} '
+                         f'failed. Could not find a file in {migrations_directory} named '
+                         f'patch_{target_version_dashed}.sql.')
+            return False
+
+    logger.info(f'Migration from v{schema_version} to v{target_version} was successful, committing transaction.')
+    connection.commit()
+
+    return True
 
 
 async def run_sprintathon(ctx, sprintathon_time_in_hours):
@@ -248,7 +339,10 @@ def main():
     bot = commands.Bot(command_prefix='!')
 
     connection_string = os.environ.get('SPRINTATHON_PGSQL_CONNECTION_STRING')
-    initialize_database(connection_string)
+    if not initialize_database(connection_string):
+        connection.close()
+        logger.critical('Failed to initialize database, exiting...')
+        return
     logger.info('Connected to database.')
 
     global debug_mode_enabled
@@ -272,10 +366,10 @@ def main():
         logger.info(f'User {ctx.message.author.name} requested about.')
         await ctx.send(
             ':robot: Hi! I\'m the Spr\\*ntathon bot! Beep boop :robot:\nIt\'s really nice to meet you!\n I\'m so '
-            'happy to help my fiancée track her Sprints! :heart:\n*If you have any questions, feel free to drop me an '
-            'email at zach@zachpuls.com, or check out my source code on https://github.com/ZacharyPuls/sprintathon! '
-            'If you find any issues, please do create an Issue (or even a PR) on GitHub, so I can get to fixing it! '
-            'Thanks again for using Spr\\*ntathon bot!*')
+            'happy to help my fiancée and her friends track their Sprints! :heart:\n*If you have any questions, '
+            'feel free to drop me an email at zach@zachpuls.com, or check out my source code on '
+            'https://github.com/ZacharyPuls/sprintathon! If you find any issues, please do create an Issue '
+            '(or even a PR) on GitHub, so I can get to fixing it! Thanks again for using Spr\\*ntathon bot!*')
 
     @bot.command(name='start_sprintathon', brief='Starts a new Spr*ntathon',
                  help='Use this command to create (and start) a new Spr*ntathon, given a duration in hours. Leave the '
