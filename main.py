@@ -527,9 +527,8 @@ def main():
     @bot.command(name='leaderboard', brief='Spr*ntathon Leaderboard',
                  help='Use this command to print out the current Spr*ntathon\'s leaderboard.')
     async def print_leaderboard(ctx):
-        if debug_mode_enabled and ctx.guild.name != debug_guild:
-            logger.info(f'Ignoring !leaderboard command from {ctx.message.author.name}, debug mode is active, and '
-                        f'they attempted to call from the {ctx.message.guild.name} guild.')
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!leaderboard', ctx.message.author.name,
+                                       logger):
             return
         _sprintathon = Sprintathon.get_active_for_channel(connection, ctx.channel.id)
         await print_sprintathon_leaderboard(bot, _sprintathon)
