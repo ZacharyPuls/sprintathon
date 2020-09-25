@@ -193,15 +193,17 @@ async def print_sprintathon_leaderboard(bot, _sprintathon):
 
 
 async def kill_sprintathon(ctx):
-    global sprintathon_is_active
-    global active_sprintathon
+    _server = await get_or_create_server(ctx.guild.name, ctx.guild.id)
+    _sprintathon = Sprintathon.get_active_for_channel(connection, ctx.channel.id)
 
-    active_sprintathon.delete()
-
-    sprintathon_is_active = False
-    active_sprintathon = None
-
-    response = ':x: :x: :x: You’re valid. Spr*ntathon has been cancelled. Maybe next time. :x: :x: :x:'
+    if _sprintathon is not None:
+        _sprintathon.active = False
+        _sprintathon.update()
+        response = ':x: :x: :x: You’re valid. Spr*ntathon has been cancelled. Maybe next time. :x: :x: :x:'
+        logger.info('User %s stopped sprintathon.', ctx.message.author.name)
+    else:
+        response = f':question: <@{ctx.message.author.id}>, there isn\'t an active Spr\\*ntathon for you to stop ' \
+                   f':question: '
 
     await ctx.send(response)
 
@@ -313,11 +315,15 @@ async def calculate_and_print_sprint_results(bot, _sprint):
 
 
 async def kill_sprint(ctx):
-    _sprint = Sprint(connection).get_most_recent_active(connection, get_or_create_server(ctx.guild.name, ctx.guild.id),
-                                                        ctx.channel.id)
-    _sprint.delete()
-
-    response = ':x: :x: :x: You’re valid. Sprint has been cancelled. Maybe next time. :x: :x: :x:'
+    _server = await get_or_create_server(ctx.guild.name, ctx.guild.id)
+    _sprint = Sprint.get_most_recent_active(connection, _server, ctx.channel.id)
+    if _sprint is not None:
+        _sprint.active = False
+        _sprint.update()
+        response = ':x: :x: :x: You’re valid. Sprint has been cancelled. Maybe next time. :x: :x: :x:'
+        logger.info('User %s stopped sprint.', ctx.message.author.name)
+    else:
+        response = f':question: <@{ctx.message.author.id}>, there isn\'t an active Sprint for you to stop :question:'
 
     await ctx.send(response)
 
@@ -456,7 +462,6 @@ def main():
         if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!stop_sprintathon',
                                        ctx.message.author.name, logger):
             return
-        logger.info('User %s stopped sprintathon.', ctx.message.author.name)
         await kill_sprintathon(ctx)
 
     @bot.command(name='start_sprint', brief='Starts a new Sprint',
@@ -477,7 +482,6 @@ def main():
         if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!stop_sprint', ctx.message.author.name,
                                        logger):
             return
-        logger.info('Stopping sprint.')
         await kill_sprint(ctx)
 
     @bot.command(name='sprint', brief='Checks into the current Sprint',
@@ -532,6 +536,15 @@ def main():
             return
         _sprintathon = Sprintathon.get_active_for_channel(connection, ctx.channel.id)
         await print_sprintathon_leaderboard(bot, _sprintathon)
+
+    @bot.command(name='version', brief='Show Spr*ntathon version',
+                 help='Use this command to print out the current application version.')
+    async def print_version(ctx):
+        if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!version', ctx.message.author.name,
+                                       logger):
+            return
+        await ctx.send(f'Spr*ntathon application v{__version__[0]}.{__version__[1]}.{__version__[2]} © 2020 Zachary '
+                       f'Puls - https://github.com/ZacharyPuls/sprintathon')
 
     bot.run(discord_token)
 
