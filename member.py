@@ -22,7 +22,7 @@ class Member(Dbo):
 
     def update(self) -> None:
         with self.connection.cursor() as cursor:
-            cursor.execute('UPDATE MEMBER SET NAME=%s, DISCORD_USER_ID=%s WHERE ID=%s',
+            cursor.execute('UPDATE MEMBER SET NAME = %s, DISCORD_USER_ID = %s WHERE ID=%s',
                            (self.name, self.discord_user_id, self.id))
             self.connection.commit()
             self.logger.debug('Updating %s in database.', self)

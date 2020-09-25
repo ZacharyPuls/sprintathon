@@ -34,11 +34,11 @@ class Submission(Dbo):
     def update(self) -> None:
         with self.connection.cursor() as cursor:
             if self.datetime is None:
-                cursor.execute('UPDATE SUBMISSION SET MEMBER_ID=%s, WORD_COUNT=%s, TYPE=%s, DATETIME=NOW() WHERE ID=%s '
-                               'RETURNING DATETIME', (self.member.id, self.word_count, self.type, self.id))
+                cursor.execute('UPDATE SUBMISSION SET MEMBER_ID = %s, WORD_COUNT = %s, TYPE = %s, DATETIME = NOW() '
+                               'WHERE ID=%s RETURNING DATETIME', (self.member.id, self.word_count, self.type, self.id))
             else:
                 cursor.execute(
-                    'UPDATE SUBMISSION SET MEMBER_ID=%s, WORD_COUNT=%s, TYPE=%s, DATETIME=%s WHERE ID=%s '
+                    'UPDATE SUBMISSION SET MEMBER_ID = %s, WORD_COUNT = %s, TYPE = %s, DATETIME = %s WHERE ID=%s '
                     'RETURNING DATETIME', (self.member.id, self.word_count, self.type, self.datetime, self.id))
             self.datetime = cursor.fetchone()[0]
             self.connection.commit()
