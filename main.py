@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import datetime
 
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -11,16 +12,13 @@ from member import Member
 from submission import Submission
 from sprint import Sprint
 from sprintathon import Sprintathon
+import server
 
-active_sprint: Sprint
-active_sprintathon: Sprintathon
-
-sprintathon_is_active = False
 connection = None
 
 debug_mode_enabled: bool
 
-__version__ = [1, 0, 1]
+__version__ = [1, 0, 2]
 migrations_directory = 'db/migrations'
 
 
@@ -65,6 +63,9 @@ def initialize_database(connection_uri):
         connection.commit()
         cursor.execute('SELECT * FROM VERSION')
         schema_version_result = cursor.fetchone()
+        if schema_version_result is None:
+            schema_is_blank = True
+            schema_version_result = [0, 0, 0]
         schema_version_major = schema_version_result[0]
         schema_version_minor = schema_version_result[1]
         schema_version_patch = schema_version_result[2]
@@ -82,11 +83,22 @@ def initialize_database(connection_uri):
                            f'which is greater. Aborting migration.')
             return False
 
-        logger.info(f'Migrating database schema from v{schema_version} to v{target_version}.')
+        if schema_version == target_version:
+            logger.info(f'Schema version v{schema_version} is identical to application version v{target_version}. '
+                        f'No migrations to apply.')
+            return True
+
+        if schema_is_blank:
+            logger.info(f'Migrating database schema from blank to v{target_version}.')
+        else:
+            logger.info(f'Migrating database schema from v{schema_version} to v{target_version}.')
 
         migration_files = sorted(os.listdir(migrations_directory))
         try:
-            migration_file_list_start = migration_files.index(f'patch_{schema_version_dashed}.sql') + 1
+            if schema_is_blank:
+                migration_file_list_start = 0
+            else:
+                migration_file_list_start = migration_files.index(f'patch_{schema_version_dashed}.sql') + 1
             if migration_file_list_start >= len(migration_files):
                 logger.info(f'No migrations to apply.')
                 return True
@@ -117,11 +129,11 @@ def initialize_database(connection_uri):
                     logger.info(f'Rolling back migrations, reverting back to v{schema_version}.')
                     connection.rollback()
                     return False
-        except ValueError:
+        except ValueError as e:
             logger.error(f'Migration of database schema with version '
                          f'{schema_version} to {target_version} '
                          f'failed. Could not find a file in {migrations_directory} named '
-                         f'patch_{target_version_dashed}.sql.')
+                         f'patch_{target_version_dashed}.sql. [{repr(e)}]')
             return False
 
     logger.info(f'Migration from v{schema_version} to v{target_version} was successful, committing transaction.')
@@ -130,46 +142,54 @@ def initialize_database(connection_uri):
     return True
 
 
-async def run_sprintathon(ctx, sprintathon_time_in_hours):
-    global sprintathon_is_active
-    global active_sprintathon
+async def run_sprintathon(bot, _sprintathon):
+    current_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
+    sprintathon_start_time = _sprintathon.start.astimezone(datetime.timezone.utc)
+    time_elapsed = current_time - sprintathon_start_time
+    seconds_to_wait = _sprintathon.duration * 60 * 60 - time_elapsed.total_seconds()
+    logging.getLogger('sprintathon.main.run_sprintathon').debug(
+        f'Time elapsed: {time_elapsed} | Current time: {current_time} '
+        f'| Sprintathon start time: {sprintathon_start_time} '
+        f'| Seconds to wait: {seconds_to_wait}')
 
-    active_sprintathon = Sprintathon(connection=connection, duration=sprintathon_time_in_hours)
-    active_sprintathon.create()
+    if seconds_to_wait > 0:
+        if debug_mode_enabled:
+            await asyncio.sleep(90)
+        else:
+            await asyncio.sleep(seconds_to_wait)
 
-    hour_or_hours = 'hour'
-
-    if sprintathon_time_in_hours != 1:
-        hour_or_hours = 'hours'
-
-    sprintathon_is_active = True
-
-    response = f':loudspeaker: :loudspeaker: :loudspeaker: It\'s spr*ntathon time! Starting a timer for ' \
-               f'{sprintathon_time_in_hours} {hour_or_hours}. :loudspeaker: :loudspeaker: :loudspeaker: '
-
-    await ctx.send(response)
-
-    if debug_mode_enabled:
-        await asyncio.sleep(90)
-    else:
-        await asyncio.sleep(sprintathon_time_in_hours * 60 * 60)
-
-    # If the sprintathon was cancelled by the user while we were sleeping, stop running.
-    if not sprintathon_is_active:
+    # If the Spr*ntathon was cancelled by the user while we were sleeping, stop running.
+    _sprintathon.fetch()
+    if not _sprintathon.active:
         return
 
-    await ctx.send('**Sprintathon is done! Here are the results:**')
+    await bot.get_channel(_sprintathon.discord_channel_id).send('**Sprintathon is done! Here are the results:**')
+    await print_sprintathon_leaderboard(bot, _sprintathon)
+    _sprintathon.active = False
+    _sprintathon.update()
 
-    await print_sprintathon_leaderboard(ctx)
+
+async def start_new_sprintathon(ctx, sprintathon_time_in_hours):
+    _server = await get_or_create_server(ctx.guild.name, ctx.guild.id)
+    _sprintathon = Sprintathon(connection=connection, duration=sprintathon_time_in_hours, _server=_server,
+                               discord_channel_id=ctx.channel.id)
+    _sprintathon.create()
+    hour_or_hours = 'hour'
+    if sprintathon_time_in_hours != 1:
+        hour_or_hours = 'hours'
+    response = f':loudspeaker: :loudspeaker: :loudspeaker: It\'s spr*ntathon time! Starting a timer for ' \
+               f'{sprintathon_time_in_hours} {hour_or_hours}. :loudspeaker: :loudspeaker: :loudspeaker: '
+    await ctx.send(response)
+    return _sprintathon
 
 
-async def print_sprintathon_leaderboard(ctx):
+async def print_sprintathon_leaderboard(bot, _sprintathon):
     sprintathon_word_counts = dict()
-    for sprintathon_member in active_sprintathon.get_members():
-        sprintathon_word_counts[sprintathon_member.discord_user_id] = active_sprintathon.get_word_count(
-            sprintathon_member)
+    for sprintathon_member in _sprintathon.get_members():
+        sprintathon_word_counts[sprintathon_member.discord_user_id] = _sprintathon.get_word_count(sprintathon_member)
     sprintathon_leaderboard = sorted(sprintathon_word_counts.items(), key=lambda item: item[1], reverse=True)
-    await ctx.send(format_leaderboard_string(sprintathon_leaderboard, active_sprintathon.duration * 60))
+    await bot.get_channel(_sprintathon.discord_channel_id).send(
+        format_leaderboard_string(sprintathon_leaderboard, _sprintathon.duration * 60))
 
 
 async def kill_sprintathon(ctx):
@@ -186,36 +206,26 @@ async def kill_sprintathon(ctx):
     await ctx.send(response)
 
 
-async def run_sprint(ctx, sprint_time_in_minutes):
-    global active_sprint
-    active_sprint = Sprint(connection=connection, duration=sprint_time_in_minutes)
-    active_sprint.create()
-    minute_or_minutes = 'minute'
+async def run_sprint(bot, _sprint):
+    current_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
+    sprint_start_time = _sprint.start.astimezone(datetime.timezone.utc)
+    time_elapsed = current_time - sprint_start_time
+    logging.getLogger('sprintathon.main.run_sprint').info(
+        f'Time elapsed: {time_elapsed} | Current time: ''{current_time} | ' f'Sprint start time: {sprint_start_time}')
+    seconds_to_wait = _sprint.duration * 60 - time_elapsed.total_seconds()
 
-    if sprint_time_in_minutes != 1:
-        minute_or_minutes = 'minutes'
-
-    response = f'It\'s sprint time, let\'s get typing! Everyone use \'!sprint [word count]\' with your current ' \
-               f'word count to check in. I\'m setting the timer for {sprint_time_in_minutes} {minute_or_minutes}, try and write as much ' \
-               f'as you can in the allotted time. When the time is up, I will let you know, and you will have 5 ' \
-               f'minutes to check in again with your word count.'
-
-    # TODO: allow members to join for 5 minutes before actually starting the sprint
-
-    await ctx.send(response)
-
-    if debug_mode_enabled:
-        await asyncio.sleep(sprint_time_in_minutes * 5)
-    else:
-        await asyncio.sleep(sprint_time_in_minutes * 60)
+    if seconds_to_wait > 0:
+        if debug_mode_enabled:
+            await asyncio.sleep(10)
+        else:
+            await asyncio.sleep(seconds_to_wait)
 
     # If the sprint was cancelled by the user while we were sleeping, stop running.
-    if not active_sprint:
+    _sprint.fetch()
+    if not _sprint.active:
         return
 
-    # TODO: make this 2 minutes, and tag all of the members currently participating in the sprint
-    current_sprint_members = ','.join([f'<@{member.discord_user_id}>' for member in active_sprint.get_members()])
-    await ctx.send(f'Time is up! You have 2 minutes to enter your word count\n    {current_sprint_members} - don\'t forget to check in with your ending word count!')
+    await bot.get_channel(_sprint.discord_channel_id).send(_sprint.time_is_up_message())
 
     if debug_mode_enabled:
         await asyncio.sleep(15)
@@ -223,64 +233,89 @@ async def run_sprint(ctx, sprint_time_in_minutes):
         await asyncio.sleep(2 * 60)
 
     # If the sprint was cancelled by the user while we were sleeping, stop running.
-    if not active_sprint:
+    _sprint.fetch()
+    if not _sprint.active:
         return
 
-    await ctx.send('Word count submission time is up!')
+    await calculate_and_print_sprint_results(bot, _sprint)
 
+    _sprint.active = False
+    _sprint.update()
+
+
+async def start_new_sprint(ctx, sprint_time_in_minutes):
+    _server = await get_or_create_server(ctx.guild.name, ctx.guild.id)
+    channel_id = ctx.channel.id
+    _sprint = Sprint(connection=connection, duration=sprint_time_in_minutes, _server=_server, active=True,
+                     _sprintathon=Sprintathon.get_active_for_channel(connection, channel_id),
+                     discord_channel_id=channel_id)
+    _sprint.create()
+    minute_or_minutes = 'minute'
+
+    if sprint_time_in_minutes != 1:
+        minute_or_minutes = 'minutes'
+
+    response = f'It\'s sprint time, let\'s get typing! Everyone use \'!sprint [word count]\' with your current ' \
+               f'word count to check in. I\'m setting the timer for {sprint_time_in_minutes} {minute_or_minutes}, ' \
+               f'try and write as much as you can in the allotted time. When the time is up, I will let you know, ' \
+               f'and you will have 5 minutes to check in again with your word count.'
+
+    # TODO: allow members to join for 5 minutes before actually starting the sprint
+
+    await ctx.send(response)
+    return _sprint
+
+
+async def calculate_and_print_sprint_results(bot, _sprint):
+    channel = bot.get_channel(_sprint.discord_channel_id)
+    await channel.send('Word count submission time is up!')
     sprint_word_counts = dict()
-
-    for sprint_member in active_sprint.get_members():
-        submissions = Submission.find_all_by_member_and_sprint(connection, sprint_member, active_sprint)
+    for sprint_member in _sprint.get_members():
+        submissions = Submission.find_all_by_member_and_sprint(connection, sprint_member, _sprint)
         finish_word_count = next((item.word_count for item in submissions if item.type == 'FINISH'), None)
         start_word_count = next((item.word_count for item in submissions if item.type == 'START'), None)
         if not start_word_count or not finish_word_count:
-            await ctx.send(f'Sprint member <@{sprint_member.discord_user_id}> forgot to submit their final word '
-                           f'count! Skipping member for leaderboard calculations.')
+            await channel.send(f'Sprint member <@{sprint_member.discord_user_id}> forgot to submit their final word '
+                               f'count! Skipping member for leaderboard calculations.')
             continue
 
         if finish_word_count < start_word_count:
-            await ctx.send(f'Sprint member <@{sprint_member.discord_user_id}> sent in a final word count of '
-                           f'{finish_word_count}, which was less than their starting word count of {start_word_count}. '
-                           f'This isn\'t possible! Skipping member for leaderboard calculations.')
+            await channel.send(f'Sprint member <@{sprint_member.discord_user_id}> sent in a final word count of '
+                               f'{finish_word_count}, which was less than their starting word count of '
+                               f'{start_word_count}. This isn\'t possible! Skipping member for leaderboard '
+                               f'calculations.')
             continue
 
         if finish_word_count == start_word_count:
-            await ctx.send(f'Sprint member <@{sprint_member.discord_user_id}> didn\'t type at all...that makes me a '
-                           f'sad robot :(')
+            await channel.send(f'Sprint member <@{sprint_member.discord_user_id}> didn\'t type at all...'
+                               f'that makes me a sad robot :(')
 
         word_count = finish_word_count - start_word_count
         submission = Submission(connection=connection, member=sprint_member, word_count=word_count, _type='DELTA')
         submission.create()
-        active_sprint.add_submission(submission)
-        if sprintathon_is_active:
-            active_sprintathon.add_submission(submission)
+        _sprint.add_submission(submission)
 
         sprint_word_counts[sprint_member.discord_user_id] = word_count
-
     sprint_leaderboard = sorted(sprint_word_counts.items(), key=lambda item: item[1], reverse=True)
-
     message = '**Sprint is done! Here are the results:**\n'
-    message += format_leaderboard_string(sprint_leaderboard, active_sprint.duration)
-    await ctx.send(message)
-
+    message += format_leaderboard_string(sprint_leaderboard, _sprint.duration)
+    await channel.send(message)
     # If there is a sprintathon currently active, award the 1st place member double points.
-    if sprintathon_is_active and len(sprint_leaderboard) > 0:
+    if _sprint.sprintathon is not None and _sprint.sprintathon.active and len(sprint_leaderboard) > 0:
         first_place_entry = sprint_leaderboard[0]
-        first_place_member = Member(connection=connection).find_by_discord_user_id(first_place_entry[0])
+        first_place_member = Member(connection).find_by_discord_user_id(first_place_entry[0])
         submission = Submission(connection=connection, member=first_place_member, word_count=first_place_entry[1],
                                 _type='DELTA')
         submission.create()
-        active_sprintathon.add_submission(submission)
-        await ctx.send(f'**Member <@{first_place_entry[0]}> got first place, so they get double points for the '
-                       f'Spr*ntathon!**')
+        _sprint.sprintathon.add_submission(submission)
+        await channel.send(
+            f'**Member <@{first_place_entry[0]}> got first place, so they get double points for the Spr*ntathon!**')
 
 
 async def kill_sprint(ctx):
-    global active_sprint
-
-    active_sprint.delete()
-    active_sprint = None
+    _sprint = Sprint(connection).get_most_recent_active(connection, get_or_create_server(ctx.guild.name, ctx.guild.id),
+                                                        ctx.channel.id)
+    _sprint.delete()
 
     response = ':x: :x: :x: You’re valid. Sprint has been cancelled. Maybe next time. :x: :x: :x:'
 
@@ -288,6 +323,8 @@ async def kill_sprint(ctx):
 
 
 def format_leaderboard_string(leaderboard, duration_in_minutes):
+    if len(leaderboard) == 0:
+        return 'No one joined this round!'
     message = ''
     for position, result in enumerate(leaderboard):
         st_nd_or_th = ''
@@ -320,6 +357,32 @@ def detect_debug_guild_conflict(current_guild, debug_guild, command_name, user_n
                     f'to call from the {current_guild} guild.')
         return True
     return False
+
+
+async def get_or_create_server(guild_name, guild_id):
+    return server.Server(connection, name=guild_name, discord_guild_id=guild_id).find_or_create()
+
+
+async def handle_orphaned_sprintathons(bot):
+    for _sprintathon in Sprintathon.get_active(connection):
+        await bot.get_channel(_sprintathon.discord_channel_id).send(
+            f'*Oops! Looks like the Spr\\*ntathon bot crashed while processing a Spr\\*ntathon earlier! To make sure '
+            f'the Spr\\*ntathon bot follows the ACID principle, I\'m going to pick up where the crashed bot left off, '
+            f'and continue the Spr\\*ntathon! Keep in mind, any WPM calculations might be off, depending on how '
+            f'quickly the crashed process was restarted. If anything seems off, please shoot a message over to Zach '
+            f'Puls, or an email to zach@zachpuls.com.*')
+        await run_sprintathon(bot, _sprintathon)
+
+
+async def handle_orphaned_sprints(bot):
+    for _sprint in Sprint.get_active(connection):
+        await bot.get_channel(_sprint.discord_channel_id).send(
+            f'*Oops! Looks like the Spr\\*ntathon bot crashed while processing a Sprint earlier! To make sure the '
+            f'Spr\\*ntathon bot follows the ACID principle, I\'m going to pick up where the crashed bot left off, '
+            f'and continue the Sprint! Keep in mind, any WPM calculations might be off, depending on how quickly the '
+            f'crashed process was restarted. If anything seems off, please shoot a message over to Zach Puls, '
+            f'or an email to zach@zachpuls.com.*')
+        await run_sprint(bot, _sprint)
 
 
 def main():
@@ -358,6 +421,9 @@ def main():
     @bot.event
     async def on_ready():
         logger.info('Sprintathon is started and ready to handle requests.')
+        # Find and handle any orphaned sprints/spr*ntathons
+        await handle_orphaned_sprintathons(bot)
+        await handle_orphaned_sprints(bot)
 
     @bot.command(name='about', brief='About Spr*ntathon',
                  help='Use this command to get detailed information about the Spr*ntathon bot.')
@@ -380,7 +446,8 @@ def main():
                                        ctx.message.author.name, logger):
             return
         logger.info('Starting sprintathon with duration of %i hours.', sprintathon_time_in_hours)
-        await run_sprintathon(ctx, sprintathon_time_in_hours)
+        _sprintathon = await start_new_sprintathon(ctx, sprintathon_time_in_hours)
+        await run_sprintathon(bot, _sprintathon)
 
     @bot.command(name='stop_sprintathon', brief='Stops the current Spr*ntathon',
                  help='Use this command to stop the currently running Spr*ntathon, if one is running. If there is not '
@@ -400,7 +467,8 @@ def main():
                                        logger):
             return
         logger.info('Starting sprint with duration of %i minutes.', sprint_time_in_minutes)
-        await run_sprint(ctx, sprint_time_in_minutes)
+        _sprint = await start_new_sprint(ctx, sprint_time_in_minutes)
+        await run_sprint(bot, _sprint)
 
     @bot.command(name='stop_sprint', brief='Stops the current Sprint',
                  help='Use this command to stop the currently running Sprint, if one is running. If there is not a '
@@ -418,7 +486,6 @@ def main():
     async def sprint(ctx, word_count_str: str):
         if detect_debug_guild_conflict(ctx.message.guild.name, debug_guild, '!sprint', ctx.message.author.name, logger):
             return
-        global active_sprint
         user_id = ctx.message.author.id
         user_name = ctx.message.author.name
 
@@ -426,6 +493,9 @@ def main():
         if not member:
             member = Member(connection=connection, name=user_name, discord_user_id=user_id)
             member.create()
+
+        _server = await get_or_create_server(ctx.guild.name, ctx.guild.id)
+        _server.add_member(member)
 
         if word_count_str.lower() != 'same':
             word_count = int(word_count_str)
@@ -440,19 +510,17 @@ def main():
         logger.info('Member %s is checking in with a word_count of %i.', user_name, word_count)
         response = f'{user_name} checked in with {word_count} words!'
 
-        active_sprint.add_member(member)
+        _sprint = Sprint.get_most_recent_active(connection, _server, ctx.channel.id)
+        _sprint.add_member(member)
 
         submission = Submission(connection=connection, member=member, word_count=word_count)
-        if submission.member.has_submission_in(active_sprint):
+        if submission.member.has_submission_in(_sprint):
             submission.type = 'FINISH'
         else:
             submission.type = 'START'
         submission.create()
 
-        active_sprint.add_submission(submission)
-
-        if sprintathon_is_active:
-            active_sprintathon.add_submission(submission)
+        _sprint.add_submission(submission)
 
         await ctx.send(response)
 
@@ -463,7 +531,8 @@ def main():
             logger.info(f'Ignoring !leaderboard command from {ctx.message.author.name}, debug mode is active, and '
                         f'they attempted to call from the {ctx.message.guild.name} guild.')
             return
-        await print_sprintathon_leaderboard(ctx)
+        _sprintathon = Sprintathon.get_active_for_channel(connection, ctx.channel.id)
+        await print_sprintathon_leaderboard(bot, _sprintathon)
 
     bot.run(discord_token)
 
