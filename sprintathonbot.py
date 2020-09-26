@@ -43,23 +43,31 @@ class SprintathonBot(commands.Cog):
     async def print_help(self, ctx, *args: str):
         if ctx.message.content.startswith('!'):
             return
-        await ctx.send(f':robot: Hi, I\'m Spr\\*ntathon Bot! Beep boop! :robot:\n'
-                       f'Here is a list of all the commands I know:\n'
-                       f'   Help: Just mention my name and send "help", I\'ll print this message!\n'
-                       f'   !about: Use this command to get detailed information about me, the Spr\\*ntathon Bot!\n'
-                       f'   !start_sprintathon [duration]: Use this command to create (and start) a new '
-                       f'Spr\\*ntathon, given a duration in hours. Leave the duration blank for a 24hr Spr\\*ntathon.\n'
-                       f'   !stop_sprintathon: Use this command to stop the currently running Spr\\*ntathon, '
-                       f'if one is running. If there is not a Spr\\*ntathon currently running, this command does '
-                       f'nothing.\n'
-                       f'   !start_sprint [duration]: Use this command to create (and start) a new Sprint, given a '
-                       f'duration in minutes. Leave the duration blank for a 15min Sprint.\n '
-                       f'   !stop_sprint: Use this command to stop the currently running Sprint, if one is running. '
-                       f'If there is not a Sprint currently running, this command does nothing.\n'
-                       f'   !sprint [word_count]: Use this command to check into the currently running Sprint, '
-                       f'given a word count, or the keyword \'same\' to use your previously submitted word count.\n '
-                       f'   !leaderboard: Use this command to print out the current Spr\\*ntathon\'s leaderboard.\n'
-                       f'   !version: Use this command to print out the current application version.')
+        await ctx.send(":robot: Hi, I'm Spr\\*ntathon Bot! Beep boop! :robot:\n"
+                       "Here is a list of all the commands I know:\n"
+                       "`   Help: Just mention my name and send \"help\", I'll print this message!`\n"
+                       "`   !about (or !info): Use this command to get detailed information about me, "
+                       "the Spr\\*ntathon Bot!`\n"
+                       "`   !start_sprintathon [duration]: Use this command to create (and start) a new "
+                       "Spr\\*ntathon, given a duration in hours. Leave the duration blank for a 24hr Spr\\*ntathon.`\n"
+                       "`   !stop_sprintathon: Use this command to stop the currently running Spr\\*ntathon, "
+                       "if one is running. If there is not a Spr\\*ntathon currently running, this command does "
+                       "nothing.`\n"
+                       "`   !start_sprint [duration]: Use this command to create (and start) a new Sprint, given a "
+                       "duration in minutes. Leave the duration blank for a 15min Sprint.`\n"
+                       "`   !stop_sprint: Use this command to stop the currently running Sprint, if one is running. "
+                       "If there is not a Sprint currently running, this command does nothing.`\n"
+                       "`   !sprint [word_count]: Use this command to check into the currently running Sprint, "
+                       "given a word count, or the keyword 'same' to use your previously submitted word count.`\n"
+                       "`   !leaderboard: Use this command to print out the current Spr\\*ntathon's leaderboard.`\n"
+                       "`   !version: Use this command to print out the current application version.`")
+
+    @print_help.error
+    async def print_help_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
 
     @commands.command(name='about', brief='About Spr*ntathon', aliases=['info'],
                       help='Use this command to get detailed information about the Spr*ntathon bot.')
@@ -73,14 +81,33 @@ class SprintathonBot(commands.Cog):
             'https://github.com/ZacharyPuls/sprintathon! If you find any issues, please do create an Issue '
             '(or even a PR) on GitHub, so I can get to fixing it! Thanks again for using Spr\\*ntathon bot!*')
 
+    @print_about.error
+    async def print_about_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
+
     @commands.command(name='start_sprintathon', brief='Starts a new Spr*ntathon',
                       help='Use this command to create (and start) a new Spr*ntathon, given a duration in hours. '
                            'Leave the duration blank for a 24hr Spr*ntathon.')
     @commands.check(_should_handle_command)
     async def start_sprintathon(self, ctx, sprintathon_time_in_hours: int = 24):
+        if Sprintathon.get_active_for_channel(self.connection, ctx.channel.id) is not None:
+            await ctx.send(f'There is already a Spr*ntathon active for this channel! Use `!start_sprint [duration]` '
+                           f'to start a new Sprint, or if there is already one active, `!sprint [word_count]` to join '
+                           f'the currently running Sprint.')
+            return
         self.logger.info('Starting sprintathon with duration of %i hours.', sprintathon_time_in_hours)
         _sprintathon = await self.start_new_sprintathon(ctx, sprintathon_time_in_hours)
         await self.run_sprintathon(_sprintathon)
+
+    @start_sprintathon.error
+    async def start_sprintathon_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
 
     @commands.command(name='stop_sprintathon', brief='Stops the current Spr*ntathon',
                       help='Use this command to stop the currently running Spr*ntathon, if one is running. If there '
@@ -89,14 +116,33 @@ class SprintathonBot(commands.Cog):
     async def stop_sprintathon(self, ctx):
         await self.kill_sprintathon(ctx)
 
+    @stop_sprintathon.error
+    async def stop_sprintathon_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
+
     @commands.command(name='start_sprint', brief='Starts a new Sprint',
                       help='Use this command to create (and start) a new Sprint, given a duration in minutes. Leave '
                            'the duration blank for a 15min Sprint.')
     @commands.check(_should_handle_command)
     async def start_sprint(self, ctx, sprint_time_in_minutes: int = 15):
+        _server = await self._get_or_create_server(ctx.guild.name, ctx.guild.id)
+        if Sprint.get_most_recent_active(self.connection, _server, ctx.channel.id) is not None:
+            await ctx.send(f'There is already a Sprint active for this channel! Use `!sprint [word_count]` to join '
+                           f'the currently running Sprint.')
+            return
         self.logger.info('Starting sprint with duration of %i minutes.', sprint_time_in_minutes)
         _sprint = await self.start_new_sprint(ctx, sprint_time_in_minutes)
         await self.run_sprint(_sprint)
+
+    @start_sprint.error
+    async def start_sprint_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
 
     @commands.command(name='stop_sprint', brief='Stops the current Sprint',
                       help='Use this command to stop the currently running Sprint, if one is running. If there is not '
@@ -104,6 +150,13 @@ class SprintathonBot(commands.Cog):
     @commands.check(_should_handle_command)
     async def stop_sprint(self, ctx):
         await self.kill_sprint(ctx)
+
+    @stop_sprint.error
+    async def stop_sprint_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
 
     @commands.command(name='sprint', brief='Checks into the current Sprint',
                       help='Use this command to check into the currently running Sprint, given a word count, '
@@ -155,6 +208,13 @@ class SprintathonBot(commands.Cog):
 
         await ctx.send(response)
 
+    @sprint.error
+    async def sprint_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
+
     @commands.command(name='leaderboard', brief='Spr*ntathon Leaderboard',
                       help='Use this command to print out the current Spr*ntathon\'s leaderboard.')
     @commands.check(_should_handle_command)
@@ -169,6 +229,13 @@ class SprintathonBot(commands.Cog):
         else:
             await self._print_sprintathon_leaderboard(_sprintathon)
 
+    @print_leaderboard.error
+    async def print_leaderboard_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
+
     @commands.command(name='version', brief='Show Spr*ntathon version',
                       help='Use this command to print out the current application version.')
     @commands.check(_should_handle_command)
@@ -176,13 +243,20 @@ class SprintathonBot(commands.Cog):
         await ctx.send(f'Spr*ntathon application v{self._version} © 2020 Zachary Puls - '
                        f'https://github.com/ZacharyPuls/sprintathon')
 
+    @print_version.error
+    async def print_version_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            # Ignore errors from _should_handle_command check
+            return
+        raise error
+
     async def run_sprintathon(self, _sprintathon):
         current_time = datetime.datetime.now().astimezone(datetime.timezone.utc)
         sprintathon_start_time = _sprintathon.start.astimezone(datetime.timezone.utc)
         time_elapsed = current_time - sprintathon_start_time
         seconds_to_wait = _sprintathon.duration * 60 * 60 - time_elapsed.total_seconds()
-        self.logger.debug(f'Time elapsed: {time_elapsed} | Current time: {current_time} | Sprintathon start time: '
-                          f'{sprintathon_start_time} | Seconds to wait: {seconds_to_wait}')
+        self.logger.debug(f'[run_sprintathon] Time elapsed: {time_elapsed} | Current time: {current_time} | '
+                          f'Sprintathon start time: {sprintathon_start_time} | Seconds to wait: {seconds_to_wait}')
 
         if seconds_to_wait > 0:
             if _debug_mode:
@@ -312,23 +386,13 @@ class SprintathonBot(commands.Cog):
 
     async def _handle_orphaned_sprintathons(self):
         for _sprintathon in Sprintathon.get_active(self.connection):
-            await self.bot.get_channel(_sprintathon.discord_channel_id).send(
-                f'*Oops! Looks like the Spr\\*ntathon bot crashed while processing a Spr\\*ntathon earlier! To make sure '
-                f'the Spr\\*ntathon bot follows the ACID principle, I\'m going to pick up where the crashed bot left off, '
-                f'and continue the Spr\\*ntathon! Keep in mind, any WPM calculations might be off, depending on how '
-                f'quickly the crashed process was restarted. If anything seems off, please shoot a message over to Zach '
-                f'Puls, or an email to zach@zachpuls.com.*')
-            await self.run_sprintathon(_sprintathon)
+            self.logger.warning('Reviving orphaned sprintathon %s.', _sprintathon)
+            asyncio.create_task(self.run_sprintathon(_sprintathon))
 
     async def _handle_orphaned_sprints(self):
         for _sprint in Sprint.get_active(self.connection):
-            await self.bot.get_channel(_sprint.discord_channel_id).send(
-                f'*Oops! Looks like the Spr\\*ntathon bot crashed while processing a Sprint earlier! To make sure the '
-                f'Spr\\*ntathon bot follows the ACID principle, I\'m going to pick up where the crashed bot left off, '
-                f'and continue the Sprint! Keep in mind, any WPM calculations might be off, depending on how quickly the '
-                f'crashed process was restarted. If anything seems off, please shoot a message over to Zach Puls, '
-                f'or an email to zach@zachpuls.com.*')
-            await self.run_sprint(_sprint)
+            self.logger.warning('Reviving orphaned sprint %s.', _sprint)
+            asyncio.create_task(self.run_sprint(_sprint))
 
     async def _get_or_create_server(self, guild_name, guild_id):
         return Server(self.connection, name=guild_name, discord_guild_id=guild_id).find_or_create()
