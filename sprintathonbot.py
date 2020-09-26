@@ -16,7 +16,7 @@ _debug_guild: str
 
 
 def _should_handle_command(ctx):
-    return (_debug_mode and ctx.guild.name == _debug_guild) or (ctx.guild.name != _debug_guild)
+    return (_debug_mode and ctx.guild.name == _debug_guild) or (not _debug_mode and ctx.guild.name != _debug_guild)
 
 
 class SprintathonBot(commands.Cog):
@@ -39,6 +39,7 @@ class SprintathonBot(commands.Cog):
 
     @commands.command(name='help', brief='Command help', help='Use this command to print this help message.',
                       pass_context=True)
+    @commands.check(_should_handle_command)
     async def print_help(self, ctx, *args: str):
         if ctx.message.content.startswith('!'):
             return
