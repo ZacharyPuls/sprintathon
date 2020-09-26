@@ -100,6 +100,18 @@ class Sprintathon(Dbo):
                 (self.id, member.id, 'DELTA'))
             return cursor.fetchone()[0]
 
+    def get_bonus_word_count(self, member):
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT COALESCE(SUM(SUBMISSION.WORD_COUNT), 0) FROM SUBMISSION INNER JOIN SPRINTATHON_SUBMISSION ON '
+                'SUBMISSION.ID=SPRINTATHON_SUBMISSION.SUBMISSION_ID WHERE SPRINTATHON_SUBMISSION.SPRINTATHON_ID=%s AND '
+                'SUBMISSION.MEMBER_ID=%s AND SUBMISSION.TYPE=%s',
+                (self.id, member.id, 'BONUS'))
+            result = cursor.fetchone()
+            if result is None:
+                return 0
+            return result[0]
+
     @staticmethod
     def get_active(connection):
         with connection.cursor() as cursor:
@@ -121,6 +133,18 @@ class Sprintathon(Dbo):
                 return None
             return Sprintathon(connection, result[0], result[1], int(result[2].total_seconds() // 3600),
                                server.Server(connection).find_by_id(result[3]), True, channel_id)
+
+    @staticmethod
+    def get_most_recent_for_channel(connection, channel_id):
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT ID, START, DURATION, SERVER_ID, ACTIVE FROM SPRINTATHON '
+                           'WHERE DISCORD_CHANNEL_ID=%s '
+                           'ORDER BY START DESC LIMIT 1', [channel_id])
+            result = cursor.fetchone()
+            if result is None:
+                return None
+            return Sprintathon(connection, result[0], result[1], int(result[2].total_seconds() // 3600),
+                               server.Server(connection).find_by_id(result[3]), result[4], channel_id)
 
     def __repr__(self) -> str:
         return f'Sprintathon{{id={self.id},start={self.start},duration={self.duration},server={self.server},' \

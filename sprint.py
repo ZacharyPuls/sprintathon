@@ -152,8 +152,10 @@ class Sprint(Dbo):
 
     def time_is_up_message(self) -> str:
         current_sprint_members = ','.join([f'<@{_member.discord_user_id}>' for _member in self.get_members()])
-        return f'Time is up! You have 2 minutes to enter your word count\n    {current_sprint_members} - don\'t ' \
-               f'forget to check in with your ending word count!'
+        return f':alarm_clock: :alarm_clock: :alarm_clock: Time is up! You have 2 minutes to enter your word count. ' \
+               f'Type !sprint [word count] with your ending word count to conclude this sprint.  :alarm_clock: ' \
+               f':alarm_clock: :alarm_clock:\n    {current_sprint_members} - don\'t forget to check in with your ' \
+               f'ending word count! '
     # def get_word_count(self, member, count_type):
     #     with self.connection.cursor() as cursor:
     #         cursor.execute(
