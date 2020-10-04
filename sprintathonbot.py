@@ -264,7 +264,7 @@ class SprintathonBot(commands.Cog):
             else:
                 if seconds_to_wait > 3600:
                     await asyncio.sleep(seconds_to_wait - 3600)
-                    self.bot.get_channel(_sprintathon.discord_channel_id).send(
+                    await self.bot.get_channel(_sprintathon.discord_channel_id).send(
                         f':exclamation: :exclamation: :exclamation: We\'re getting close to the finale! Get any last '
                         f'words in before your time is up!! :exclamation: :exclamation: :exclamation:')
                     await asyncio.sleep(3600)
@@ -309,7 +309,7 @@ class SprintathonBot(commands.Cog):
         if _debug_mode:
             await asyncio.sleep(15)
         else:
-            await asyncio.sleep(2 * 60)
+            await asyncio.sleep(7 * 60)
 
         # If the sprint was cancelled by the user while we were sleeping, stop running.
         _sprint.fetch()
